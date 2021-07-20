@@ -865,11 +865,59 @@ for i, data in tqdm(train.iterrows()):
     t.append(t_tmp)
 
 tf = pd.concat(t)
+
 # tf.to_csv("./tf_saved.csv", index=False)
-tf.to_parquet("./tf_saved.parq")
+# tf.to_parquet("./tf_saved.parq")
+# tf = pd.read_csv("./tf_saved.csv")
+# tf = pd.read_parquet("./tf_saved.parq")
+
+
+tf.groupby('dailyDataDate')['playerId'].size().max()
+
+
+tf.season.isna().sum()  # too many blanks
+# tf['season'] = tf.dailyDataDate//10000
+
+
+#  Add more features
+# fantasy rankings
+rank_cols=['season', 'playerId', 'rank', 'adp']
+ranks = pd.read_csv('data/fantasy_rankings.csv', usecols=rank_cols)
+tf = tf.merge(ranks, how='left', on=['season', 'playerId'])
+
+
+ranks[ranks.duplicated(['season', 'playerId'], keep=False)]
+
+
+tf.groupby('dailyDataDate')['playerId'].size().max()
+
+tf = tf.drop_duplicates(['season', 'playerId'])
+                # bug in the rankings file: 6 duplicated player_seasons; no idea yet which one is right
+
+
+
+# team static stats
+stat_cols = ['season', 'teamId', 'Attn_avg', 'TV_revenue', '26-MAN PAYROLL']
+team_stats = pd.read_csv('data/team_season_stats.csv', usecols=stat_cols, na_values="na")
+team_stats['Attn_avg'] = pd.to_numeric(team_stats.Attn_avg.str.replace(",", "", regex=False))
+team_stats['26-MAN PAYROLL'] = pd.to_numeric(team_stats['26-MAN PAYROLL'].str.replace("\$|\,", "", regex=True))
+team_stats.dtypes
+
+tf = tf.merge(team_stats, how='left', on=['season', 'teamId'])
+
+
+# twitter
+tweet_cols = ['playerId', 'f_actual', 'f_bin1',
+       'f_bin2', 'f_bin3', 'f_bin4', 'f_bin5', 'tweet_count', 'mean_retes',
+       'mean_likes']
+tweet = pd.read_csv('data/twitter_stats_current.csv', usecols=tweet_cols)
+tf = tf.merge(tweet, how='left', on=['playerId'])
+
+
+
+
 # Frequency Encodings
 
-# tf = pd.read_parq("./tf_saved.parq", low_memory=False)
 
 #tf[['started_next_game_pred', 'relieved_next_game_pred']] = tf[['started_next_game_pred', 'relieved_next_game_pred']].fillna(0)
 tr = tf[(tf['dailyDataDate']<20210401)]
@@ -881,7 +929,7 @@ params = {
     'min_data_in_leaf': 10,
     'objective': 'regression_l1',
     'max_depth': -1,
-    'learning_rate': 0.25,
+    'learning_rate': 0.05,
     "boosting": 'gbdt',
     "feature_fraction": 0.3,
     "bagging_freq": 1,
@@ -897,7 +945,7 @@ params = {
     "lambda_l2": 0.0,
     'alpha': 0.01, # only for Huber and Quantile regression
     "verbosity": 1,
-    "nthread": 16,
+    "nthread": 32,
     "random_state": 12345,
     'boost_from_average': False,
     'reg_sqrt': False, # Change to false for regression_l2
@@ -908,8 +956,16 @@ excl_cols = ['hitterId','pitcherId','playerId','gamePk','dailyDataDate','engagem
              "gameDate", "gameTimeUTC", "teamName", "playerName", "jerseyNum",
              "positionName", "positionType", "target1_p_mean", "target2_p_mean","target3_p_mean","target4_p_mean",
              "gameTimeUTC_team_box_score", "gameDate_team_box_score", "dailyDataDate_team_box_score","dailyDataDate_team_standings",
-             "dailyDataDate_lead", 'playerForTestSetAndFuturePreds','hr_rank','team_games_played', 'dayNight','homeWinPct','awayWinPct','homeScore','awayScore','homeWinner']
-use_cols = [col for col in tr.columns if col not in excl_cols]
+             "dailyDataDate_lead", 'playerForTestSetAndFuturePreds','hr_rank','team_games_played', 'dayNight','homeWinPct','awayWinPct',
+             'homeScore','awayScore','homeWinner', 'pitcherId_x', 'pitcherId_y']
+excl_cols_new = ['rank', 'adp', 'Attn_avg', 'TV_revenue', '26-MAN PAYROLL', 'f_actual',
+       'f_bin1', 'f_bin2', 'f_bin3', 'f_bin4', 'f_bin5', 'tweet_count',
+       'mean_retes', 'mean_likes']
+
+use_cols = [col for col in tr.columns if col not in excl_cols+excl_cols_new]
+use_cols_plus = [col for col in tr.columns if col not in excl_cols]
+
+tf.columns[tf.columns.str.contains('_x')]
 
 # excl_cols = [f"{feat}_last{n}" for feat in hitter_history_feats + pitcher_history_feats + fielder_history_feats for n in [6,8,9,11,12,13,14,15,16,17,18,19]]
 # use_cols = [col for col in use_cols if col not in excl_cols]
@@ -924,12 +980,21 @@ use_cols = [col for col in tr.columns if col not in excl_cols]
 # val_meta = train.loc[splits[self.hparams.fold][1], meta_columns]
 # train_meta = train.loc[splits[self.hparams.fold][0], meta_columns]
 
+import matplotlib.pyplot as plt
 
 model_dict = {}
-for target in ['target1','target2','target3','target4']:
-    # params['learning_rate'] = 0.001 #if target in ['target1', 'target4'] else 0.001
-    lgb_dtrain = lgb.Dataset(tr[use_cols], tr[target], free_raw_data=False)
+for target in [
+    # 'target1',
+    'target2',
+    # 'target3',
+    # 'target4'
+    ]:
+    params['learning_rate'] = 0.001 #if target in ['target1', 'target4'] else 0.001
 
+    if target in ['target2', 'target4']:
+        use_cols = use_cols_plus
+
+    lgb_dtrain = lgb.Dataset(tr[use_cols], tr[target], free_raw_data=False)
     lgb_dval = lgb.Dataset(val[use_cols], val[target], free_raw_data=False)
 
     np.random.seed(123456)
@@ -938,27 +1003,47 @@ for target in ['target1','target2','target3','target4']:
                     # folds=splits,
                     valid_sets = [lgb_dtrain, lgb_dval],
                     num_boost_round = 200000,
-                    early_stopping_rounds = 5000,
-                    verbose_eval=500,
+                    early_stopping_rounds = 2000,
+                    verbose_eval=1000,
                     #eval_train_metric=True,
                     # show_stdv=True,
                     # return_cvbooster=True
                     )
-    if not os.path.exists("./saved"):
+    if not os.path.exists("./saved_new"):
         os.makedirs("./saved")
-    lgb_model.save_model(f"./saved/lgb_{target}_dubs_trips.txt")
+    lgb_model.save_model(f"./saved_new/lgb_{target}_dubs_trips_plus.txt")
+    lgb.plot_importance(lgb_model, height=0.1, xlim=None, ylim=None,
+        title=target, xlabel='Feature importance', ylabel='feature_builder',
+        importance_type='split', max_num_features=40, figsize=(8,8))
+    plt.savefig(f'./saved_new/features_{target}_plus.jpg', bbox_inches="tight")
+
 
     model_dict[target] = {}
     model_dict[target]['num_trees'] = lgb_model.num_trees()
     model_dict[target]['imp'] = pd.DataFrame({'features': lgb_model.feature_name(), 'gain': lgb_model.feature_importance()})
     model_dict[target]['best_score'] = lgb_model.best_score
 
+
+
+
 for k,v in model_dict.items():
-    print(v['imp'].sort_values('gain')[-40:])
+    # print(v['imp'].sort_values('gain')[-40:])
     print(v['best_score']['valid_1']['l1'])
 
-for target in ['target1','target2','target3','target4']:
+lgb_preds_model = lgb.Booster(model_file = 'saved_new/lgb_target2_dubs_trips_plus.txt')
+preds = lgb_preds_model.predict(val[use_cols])
+
+val['preds_t2'] = preds
+val.to_parquet('./saved_new/valpreds_plus.parq')
+
+
+for target in ['target2',
+    # 'target3','target4'
+    ]:
     params['learning_rate'] = 0.001 #if target=='target1' else 0.001
+    if target in ['target2', 'target4']:
+        use_cols = use_cols_plus
+
     lgb_dtrain = lgb.Dataset(tf[use_cols], tf[target], free_raw_data=False)
 
     # lgb_dval = lgb.Dataset(val[use_cols], val[target], free_raw_data=False)
@@ -975,7 +1060,6 @@ for target in ['target1','target2','target3','target4']:
                     # show_stdv=True,
                     # return_cvbooster=True
                     )
-    if not os.path.exists("./saved"):
-        os.makedirs("./saved")
-    lgb_model.save_model(f"./saved/lgb_{target}_dubs_trips_full.txt")
+
+    lgb_model.save_model(f"./saved_new/lgb_{target}_dubs_trips_plus_full.txt")
 
