@@ -644,20 +644,35 @@ def find_playerId(x, players, rosters_players):
 # ####################
 
 
-train = pd.read_csv("./data/train.csv")
+train = pd.read_csv("./data/train_updated.csv")
+cutoff = 20210531
 
 
-eng = pkl.load(open("./data/train_nextDayPlayerEngagement.pickle", "rb"))
-games = pkl.load(open("./data/train_games.pickle", "rb"))
-rosters = pkl.load(open("./data/train_rosters.pickle", "rb"))
-p_box_scores = pkl.load(open("./data/train_playerBoxScores.pickle", "rb"))
-t_box_scores = pkl.load(open("./data/train_teamBoxScores.pickle", "rb"))
-transactions = pkl.load(open("./data/train_transactions.pickle", "rb"))
-standings = pkl.load(open("./data/train_standings.pickle", "rb"))
-awards = pkl.load(open("./data/train_awards.pickle", "rb"))
-events = pkl.load(open("./data/train_events.pickle", "rb"))
-p_twitter = pkl.load(open("./data/train_playerTwitterFollowers.pickle", "rb"))
-t_twitter = pkl.load(open("./data/train_teamTwitterFollowers.pickle", "rb"))
+# # pickle code, for aggregate features only
+# for nest_type in tqdm(train.columns[1:]):
+#     df_list = []
+#     for i, stuff in enumerate(train.loc[train['date']<=cutoff, nest_type]):   # tolist
+#         if stuff is not np.nan:
+#             df = pd.read_json(stuff)
+#             df['dailyDataDate'] = train.loc[i, 'date']
+#             df_list.append(df)
+#     df_all = pd.concat(df_list, ignore_index=True)
+#     df_all.to_pickle(f'data/train_updated_{nest_type}.pickle')
+
+
+# presaved from above
+eng_t = pkl.load(open("./data/train_updated_nextDayPlayerEngagement.pickle", "rb"))
+games_t = pkl.load(open("./data/train_updated_games.pickle", "rb"))
+rosters_t = pkl.load(open("./data/train_updated_rosters.pickle", "rb"))
+p_box_scores_t = pkl.load(open("./data/train_updated_playerBoxScores.pickle", "rb"))
+t_box_scores_t = pkl.load(open("./data/train_updated_teamBoxScores.pickle", "rb"))
+transactions_t = pkl.load(open("./data/train_updated_transactions.pickle", "rb"))
+standings_t = pkl.load(open("./data/train_updated_standings.pickle", "rb"))
+awards_t = pkl.load(open("./data/train_updated_awards.pickle", "rb"))
+events_t = pkl.load(open("./data/train_updated_events.pickle", "rb"))
+p_twitter_t = pkl.load(open("./data/train_updated_playerTwitterFollowers.pickle", "rb"))
+t_twitter_t = pkl.load(open("./data/train_updated_teamTwitterFollowers.pickle", "rb"))
+
 
 teams = pd.read_csv("./data/teams.csv")
 players = pd.read_csv("./data/players.csv")
@@ -665,6 +680,7 @@ players = pd.read_csv("./data/players.csv")
 schedule_21 = pd.read_csv("./data/schedule_2021.csv")
 schedule_21["gameDate"] = pd.to_datetime(schedule_21["gameDate"])
 schedule_21 = schedule_21.sort_values("gameDate")
+
 
 ##################################################################################################
 ## Regex's for extracting and matching ejected player names and getting their playerId
@@ -709,6 +725,7 @@ positions = [
 ]
 pos_regex = re.compile("|".join(map(re.escape, positions)))
 ##################################################################################################
+
 
 train_colnames = [
     "nextDayPlayerEngagement",
@@ -758,7 +775,7 @@ fielder_history_feats = ["errors"]
 team_mapping = teams.set_index("teamName")["id"].to_dict()
 team_mapping["Diamondbacks"] = 109
 
-player_mapping = p_box_scores[["playerId", "playerName"]].drop_duplicates()
+player_mapping = p_box_scores_t[["playerId", "playerName"]].drop_duplicates()
 
 ##################################################################################################
 
@@ -766,7 +783,7 @@ player_mapping = p_box_scores[["playerId", "playerName"]].drop_duplicates()
 ## Target aggregate features
 ##################################################################################################
 player_aggs = (
-    eng.groupby("playerId")[["target1", "target2", "target3", "target4"]]
+    eng_t.groupby("playerId")[["target1", "target2", "target3", "target4"]]
     .agg(
         {
             "target1": ["median", "var"],
@@ -782,7 +799,7 @@ player_aggs.columns = ["_".join(x) for x in player_aggs.columns]
 player_aggs = player_aggs.reset_index()
 
 player_medians = (
-    eng.groupby("playerId")[["target1", "target2", "target3", "target4"]]
+    eng_t.groupby("playerId")[["target1", "target2", "target3", "target4"]]
     .median()
     .round(6)
     .reset_index()
@@ -798,7 +815,7 @@ player_medians = player_medians.rename(
 )
 
 player_variances = (
-    eng.groupby("playerId")[["target1", "target2", "target3", "target4"]]
+    eng_t.groupby("playerId")[["target1", "target2", "target3", "target4"]]
     .var()
     .round(6)
     .reset_index()
@@ -814,7 +831,7 @@ player_variances = player_variances.rename(
 )
 
 player_means = (
-    eng.groupby("playerId")[["target1", "target2", "target3", "target4"]]
+    eng_t.groupby("playerId")[["target1", "target2", "target3", "target4"]]
     .mean()
     .round(6)
     .reset_index()
@@ -829,7 +846,7 @@ player_means = player_means.rename(
     axis=1,
 )
 
-game_day_player_means = eng.merge(p_box_scores[["dailyDataDate", "playerId"]])
+game_day_player_means = eng_t.merge(p_box_scores_t[["dailyDataDate", "playerId"]])
 game_day_player_means = (
     game_day_player_means.groupby("playerId")[
         ["target1", "target2", "target3", "target4"]
@@ -840,8 +857,8 @@ game_day_player_means = (
 )
 
 
-game_day_player_means = eng.merge(
-    p_box_scores[["dailyDataDate", "playerId", "gamePk"]], how="left"
+game_day_player_means = eng_t.merge(
+    p_box_scores_t[["dailyDataDate", "playerId", "gamePk"]], how="left"
 )
 game_day_player_means["game_played"] = (
     game_day_player_means["gamePk"].notnull().astype(int)
@@ -880,7 +897,7 @@ game_day_player_means = game_day_player_means.rename(
     axis=1,
 )
 
-game_day_player_vars = eng.merge(p_box_scores[["dailyDataDate", "playerId"]])
+game_day_player_vars = eng_t.merge(p_box_scores_t[["dailyDataDate", "playerId"]])
 game_day_player_vars = (
     game_day_player_vars.groupby("playerId")[
         ["target1", "target2", "target3", "target4"]
@@ -901,11 +918,11 @@ game_day_player_vars = game_day_player_vars.rename(
 
 ##################################################################################################
 position_freq = (
-    p_box_scores["positionType"].fillna(-999).value_counts(normalize=True).to_dict()
+    p_box_scores_t["positionType"].fillna(-999).value_counts(normalize=True).to_dict()
 )
 
-position_target_agg = eng.merge(
-    p_box_scores[
+position_target_agg = eng_t.merge(
+    p_box_scores_t[
         ["dailyDataDate", "playerId", "gamePk", "gameTimeUTC", "positionType"]
     ],
     how="left",
@@ -967,8 +984,8 @@ player_country_dummies = pd.pivot_table(
 ).reset_index()
 
 
-games["gameDate"] = pd.to_datetime(games["gameDate"])
-games = games.sort_values("gameDate")
+games_t["gameDate"] = pd.to_datetime(games_t["gameDate"])
+games = games_t.sort_values("gameDate")
 schedule = pd.concat(
     [
         games[["dailyDataDate", "gamePk", "homeId", "gameDate"]].rename(
@@ -984,6 +1001,8 @@ schedule = schedule[schedule["dailyDataDate"] < 20210401]
 schedule = pd.concat([schedule, schedule_21[["dailyDataDate", "teamId", "gameDate"]]])
 schedule["gameDate"] = pd.to_datetime(schedule["gameDate"])
 
+
+#################### iterations  #######################
 
 player_history = defaultdict(list)
 # List of daily training observation frames to be concatenated
@@ -1001,7 +1020,6 @@ for i, data in tqdm(train.iterrows()):
     data = data.to_frame().T
     daily_data_date = data["date"].iloc[0]
     season = int(str(daily_data_date)[:4])
-    daily_data_nested_df_names = data.drop("date", axis=1).columns.values.tolist()
 
     (
         eng,
@@ -1018,9 +1036,12 @@ for i, data in tqdm(train.iterrows()):
     ) = get_unnested_data(data, train_colnames)
     eng_shape = eng.shape
 
-    t_tmp = eng.copy()
+    t_tmp = eng
 
     # If rosters data is missing then use rosters from the most recent day available
+
+    roster_cols = rosters_t.columns
+
     if rosters.empty:
         rosters = prior_day_rosters
     prior_day_rosters = rosters.copy()
