@@ -28,47 +28,6 @@ def nb_sum(arr):
     return arr.sum()
 
 
-def unnest(data, name):
-
-    date_nested_table = data[['date', name]]
-
-    date_nested_table = (date_nested_table[
-      ~pd.isna(date_nested_table[name])
-      ].
-      reset_index(drop = True)
-      )
-
-    daily_dfs_collection = []
-
-    for date_index, date_row in date_nested_table.iterrows():
-        daily_df = pd.read_json(date_row[name])
-
-        daily_df['dailyDataDate'] = date_row['date']
-
-        daily_dfs_collection = daily_dfs_collection + [daily_df]
-
-    if daily_dfs_collection:
-        # Concatenate all daily dfs into single df for each row
-        unnested_table = (pd.concat(daily_dfs_collection,
-          ignore_index = True).
-          # Set and reset index to move 'dailyDataDate' to front of df
-          set_index('dailyDataDate').
-          reset_index()
-          )
-        return unnested_table
-    else:
-        return pd.DataFrame()
-
-
-def get_unnested_data_dict(data, daily_data_nested_df_names):
-    df_dict = {}
-    for df_name in daily_data_nested_df_names:
-        df_dict[df_name] = unnest(data, df_name)
-    return df_dict
-
-def get_unnested_data(data, colnames):
-    return (unnest(data, df_name) for df_name in colnames)
-
 
 ## Find win expectancy and volatility given inning, out, base, run situation.
 ## https://gist.github.com/JeffSackmann/815377
@@ -282,21 +241,41 @@ def find_playerId(x, players, rosters_players):
 
 ##################################################################################################
 
+train = pd.read_csv("./data/train_updated.csv", low_memory=False)
+
+###### code for testing missing values
+# train = pd.read_csv("./data/train_updated.csv", skiprows=np.arange(2,110), nrows=30, low_memory=False)
+# for i in range(len(train)):
+#     cols = np.random.choice(train.columns[2:], size=3)
+#     train.loc[i, cols] = np.nan
 
 
-train = pd.read_csv("./data/train.csv")
 
-eng = pkl.load(open("./data/train_nextDayPlayerEngagement.pickle","rb"))
-games = pkl.load(open("./data/train_games.pickle","rb"))
-rosters = pkl.load(open("./data/train_rosters.pickle","rb"))
-p_box_scores = pkl.load(open("./data/train_playerBoxScores.pickle","rb"))
-t_box_scores = pkl.load(open("./data/train_teamBoxScores.pickle","rb"))
-transactions = pkl.load(open("./data/train_transactions.pickle","rb"))
-standings = pkl.load(open("./data/train_standings.pickle","rb"))
-awards = pkl.load(open("./data/train_awards.pickle","rb"))
-events = pkl.load(open("./data/train_events.pickle","rb"))
-p_twitter = pkl.load(open("./data/train_playerTwitterFollowers.pickle","rb"))
-t_twitter = pkl.load(open("./data/train_teamTwitterFollowers.pickle","rb"))
+# # pickle code, for aggregate features only
+# for nest_type in tqdm(train.columns[1:]):
+#     df_list = []
+#     for i, stuff in enumerate(train.loc[train['date']<=cutoff, nest_type]):   # tolist
+#         if stuff is not np.nan:
+#             df = pd.read_json(stuff)
+#             df['dailyDataDate'] = train.loc[i, 'date']
+#             df_list.append(df)
+#     df_all = pd.concat(df_list, ignore_index=True)
+#     df_all.to_pickle(f'data/train_updated_{nest_type}.pickle')
+
+
+# presaved from above
+eng_t = pkl.load(open("./data/train_updated_nextDayPlayerEngagement.pickle", "rb"))
+games_t = pkl.load(open("./data/train_updated_games.pickle", "rb"))
+rosters_t = pkl.load(open("./data/train_updated_rosters.pickle", "rb"))
+p_box_scores_t = pkl.load(open("./data/train_updated_playerBoxScores.pickle", "rb"))
+t_box_scores_t = pkl.load(open("./data/train_updated_teamBoxScores.pickle", "rb"))
+transactions_t = pkl.load(open("./data/train_updated_transactions.pickle", "rb"))
+standings_t = pkl.load(open("./data/train_updated_standings.pickle", "rb"))
+awards_t = pkl.load(open("./data/train_updated_awards.pickle", "rb"))
+events_t = pkl.load(open("./data/train_updated_events.pickle", "rb"))
+p_twitter_t = pkl.load(open("./data/train_updated_playerTwitterFollowers.pickle", "rb"))
+t_twitter_t = pkl.load(open("./data/train_updated_teamTwitterFollowers.pickle", "rb"))
+
 
 teams = pd.read_csv("./data/teams.csv")
 players = pd.read_csv("./data/players.csv")
@@ -339,95 +318,267 @@ fielder_history_feats = ['errors']
 team_mapping = teams.set_index('teamName')['id'].to_dict()
 team_mapping['Diamondbacks'] = 109
 
-player_mapping = p_box_scores[['playerId','playerName']].drop_duplicates()
+player_mapping = p_box_scores_t[['playerId','playerName']].drop_duplicates()
 
 ##################################################################################################
 
 ##################################################################################################
 ## Target aggregate features
 ##################################################################################################
-player_aggs = eng.groupby('playerId')[['target1','target2','target3','target4']].agg({'target1': ['median','var'],
-                                                                                        'target2': ['median','var'],
-                                                                                        'target3': ['median','var'],
-                                                                                        'target4': ['median','var']}).round(6)
-player_aggs.columns = ["_".join(x) for x in player_aggs.columns.ravel()]
+player_aggs = (
+    eng_t.groupby("playerId")[["target1", "target2", "target3", "target4"]]
+    .agg(
+        {
+            "target1": ["median", "var"],
+            "target2": ["median", "var"],
+            "target3": ["median", "var"],
+            "target4": ["median", "var"],
+        }
+    )
+    .round(6)
+)
+
+player_aggs.columns = ["_".join(x) for x in player_aggs.columns]
 player_aggs = player_aggs.reset_index()
 
-player_medians = eng.groupby('playerId')[['target1','target2','target3','target4']].median().round(6).reset_index()
-player_medians = player_medians.rename({'target1': 'target1_p_median',
-                                        'target2': 'target2_p_median',
-                                        'target3': 'target3_p_median',
-                                        'target4': 'target4_p_median'}, axis=1)
+player_medians = (
+    eng_t.groupby("playerId")[["target1", "target2", "target3", "target4"]]
+    .median()
+    .round(6)
+    .reset_index()
+)
+player_medians = player_medians.rename(
+    {
+        "target1": "target1_p_median",
+        "target2": "target2_p_median",
+        "target3": "target3_p_median",
+        "target4": "target4_p_median",
+    },
+    axis=1,
+)
 
-player_variances = eng.groupby('playerId')[['target1','target2','target3','target4']].var().round(6).reset_index()
-player_variances = player_variances.rename({'target1': 'target1_p_var',
-                                        'target2': 'target2_p_var',
-                                        'target3': 'target3_p_var',
-                                        'target4': 'target4_p_var'}, axis=1)
+player_variances = (
+    eng_t.groupby("playerId")[["target1", "target2", "target3", "target4"]]
+    .var()
+    .round(6)
+    .reset_index()
+)
+player_variances = player_variances.rename(
+    {
+        "target1": "target1_p_var",
+        "target2": "target2_p_var",
+        "target3": "target3_p_var",
+        "target4": "target4_p_var",
+    },
+    axis=1,
+)
 
-player_means = eng.groupby('playerId')[['target1','target2','target3','target4']].mean().round(6).reset_index()
-player_means = player_means.rename({'target1': 'target1_p_mean',
-                                        'target2': 'target2_p_mean',
-                                        'target3': 'target3_p_mean',
-                                        'target4': 'target4_p_mean'}, axis=1)
+player_means = (
+    eng_t.groupby("playerId")[["target1", "target2", "target3", "target4"]]
+    .mean()
+    .round(6)
+    .reset_index()
+)
+player_means = player_means.rename(
+    {
+        "target1": "target1_p_mean",
+        "target2": "target2_p_mean",
+        "target3": "target3_p_mean",
+        "target4": "target4_p_mean",
+    },
+    axis=1,
+)
 
-game_day_player_means = eng.merge(p_box_scores[['dailyDataDate','playerId']])
-game_day_player_means = game_day_player_means.groupby('playerId')[['target1','target2','target3','target4']].mean().round(6).reset_index()
+game_day_player_means = eng_t.merge(p_box_scores_t[["dailyDataDate", "playerId"]])
+game_day_player_means = (
+    game_day_player_means.groupby("playerId")[
+        ["target1", "target2", "target3", "target4"]
+    ]
+    .mean()
+    .round(6)
+    .reset_index()
+)
 
 
-game_day_player_means = eng.merge(p_box_scores[['dailyDataDate','playerId', 'gamePk']], how='left')
-game_day_player_means['game_played'] = game_day_player_means['gamePk'].notnull().astype(int)
-off_day_player_means = game_day_player_means[game_day_player_means['game_played']==0].groupby(['playerId'])[['target1','target2','target3','target4']].mean().round(6).reset_index()
-off_day_player_means = off_day_player_means.rename({'target1': 'target1_p_mean_off_day',
-                                        'target2': 'target2_p_mean_off_day',
-                                        'target3': 'target3_p_mean_off_day',
-                                        'target4': 'target4_p_mean_off_day'}, axis=1)
+game_day_player_means = eng_t.merge(
+    p_box_scores_t[["dailyDataDate", "playerId", "gamePk"]], how="left"
+)
+game_day_player_means["game_played"] = (
+    game_day_player_means["gamePk"].notnull().astype(int)
+)
+off_day_player_means = (
+    game_day_player_means[game_day_player_means["game_played"] == 0]
+    .groupby(["playerId"])[["target1", "target2", "target3", "target4"]]
+    .mean()
+    .round(6)
+    .reset_index()
+)
+off_day_player_means = off_day_player_means.rename(
+    {
+        "target1": "target1_p_mean_off_day",
+        "target2": "target2_p_mean_off_day",
+        "target3": "target3_p_mean_off_day",
+        "target4": "target4_p_mean_off_day",
+    },
+    axis=1,
+)
 
-game_day_player_means = game_day_player_means[game_day_player_means['game_played']==1].groupby(['playerId'])[['target1','target2','target3','target4']].mean().round(6).reset_index()
-game_day_player_means = game_day_player_means.rename({'target1': 'target1_p_mean_game_day',
-                                        'target2': 'target2_p_mean_game_day',
-                                        'target3': 'target3_p_mean_game_day',
-                                        'target4': 'target4_p_mean_game_day'}, axis=1)
+game_day_player_means = (
+    game_day_player_means[game_day_player_means["game_played"] == 1]
+    .groupby(["playerId"])[["target1", "target2", "target3", "target4"]]
+    .mean()
+    .round(6)
+    .reset_index()
+)
+game_day_player_means = game_day_player_means.rename(
+    {
+        "target1": "target1_p_mean_game_day",
+        "target2": "target2_p_mean_game_day",
+        "target3": "target3_p_mean_game_day",
+        "target4": "target4_p_mean_game_day",
+    },
+    axis=1,
+)
 
-game_day_player_vars = eng.merge(p_box_scores[['dailyDataDate','playerId']])
-game_day_player_vars = game_day_player_vars.groupby('playerId')[['target1','target2','target3','target4']].var().round(6).reset_index()
-game_day_player_vars = game_day_player_vars.rename({'target1': 'target1_p_var_game_day',
-                                        'target2': 'target2_p_var_game_day',
-                                        'target3': 'target3_p_var_game_day',
-                                        'target4': 'target4_p_var_game_day'}, axis=1)
+game_day_player_vars = eng_t.merge(p_box_scores_t[["dailyDataDate", "playerId"]])
+game_day_player_vars = (
+    game_day_player_vars.groupby("playerId")[
+        ["target1", "target2", "target3", "target4"]
+    ]
+    .var()
+    .round(6)
+    .reset_index()
+)
+game_day_player_vars = game_day_player_vars.rename(
+    {
+        "target1": "target1_p_var_game_day",
+        "target2": "target2_p_var_game_day",
+        "target3": "target3_p_var_game_day",
+        "target4": "target4_p_var_game_day",
+    },
+    axis=1,
+)
 
 ##################################################################################################
-position_freq = p_box_scores['positionType'].fillna(-999).value_counts(normalize=True).to_dict()
+position_freq = (
+    p_box_scores_t["positionType"].fillna(-999).value_counts(normalize=True).to_dict()
+)
 
-position_target_agg = eng.merge(p_box_scores[['dailyDataDate','playerId','gamePk','gameTimeUTC','positionType']], how='left')
-dh_games = position_target_agg[position_target_agg[['dailyDataDate','playerId']].duplicated(keep=False)].sort_values('gameTimeUTC')[['dailyDataDate','playerId','gamePk']].reset_index(drop=True)
-dh_last_game = dh_games[dh_games[['dailyDataDate','playerId']].duplicated(keep='first')] #games to remove
-position_target_agg = position_target_agg[~(position_target_agg['playerId'].isin(dh_last_game['playerId']) & position_target_agg['gamePk'].isin(dh_last_game['gamePk']))]
-position_freq = position_target_agg['positionType'].fillna(-999).value_counts(normalize=True).to_dict()
-position_target_agg = position_target_agg.groupby('positionType')[['target1','target2','target3','target4']].agg({'target1': ['median','var'],
-                                                                                        'target2': ['median','var'],
-                                                                                        'target3': ['median','var'],
-                                                                                        'target4': ['median','var']}).round(6)
-position_target_agg.columns = ["_".join(x + ('position',)) for x in position_target_agg.columns.ravel()]
+position_target_agg = eng_t.merge(
+    p_box_scores_t[
+        ["dailyDataDate", "playerId", "gamePk", "gameTimeUTC", "positionType"]
+    ],
+    how="left",
+)
+dh_games = (
+    position_target_agg[
+        position_target_agg[["dailyDataDate", "playerId"]].duplicated(keep=False)
+    ]
+    .sort_values("gameTimeUTC")[["dailyDataDate", "playerId", "gamePk"]]
+    .reset_index(drop=True)
+)
+dh_last_game = dh_games[
+    dh_games[["dailyDataDate", "playerId"]].duplicated(keep="first")
+]  # games to remove
+position_target_agg = position_target_agg[
+    ~(
+        position_target_agg["playerId"].isin(dh_last_game["playerId"])
+        & position_target_agg["gamePk"].isin(dh_last_game["gamePk"])
+    )
+]
+position_freq = (
+    position_target_agg["positionType"]
+    .fillna(-999)
+    .value_counts(normalize=True)
+    .to_dict()
+)
+position_target_agg = (
+    position_target_agg.groupby("positionType")[
+        ["target1", "target2", "target3", "target4"]
+    ]
+    .agg(
+        {
+            "target1": ["median", "var"],
+            "target2": ["median", "var"],
+            "target3": ["median", "var"],
+            "target4": ["median", "var"],
+        }
+    )
+    .round(6)
+)
+position_target_agg.columns = [
+    "_".join(x + ("position",)) for x in position_target_agg.columns
+]
 position_target_agg = position_target_agg.reset_index()
 
 
-pitchers = players[players['primaryPositionName']=="Pitcher"]
-players['playerForTestSetAndFuturePreds'] = players['playerForTestSetAndFuturePreds'].fillna(-1).astype(int)
-players['value'] = 1
-player_country_dummies = pd.pivot_table(players, values='value', index=['playerId'], columns=['birthCountry'], aggfunc='sum', fill_value=0).reset_index()
+pitchers = players[players["primaryPositionName"] == "Pitcher"]
+players["playerForTestSetAndFuturePreds"] = (
+    players["playerForTestSetAndFuturePreds"].fillna(-1).astype(int)
+)
+players["value"] = 1
+player_country_dummies = pd.pivot_table(
+    players,
+    values="value",
+    index=["playerId"],
+    columns=["birthCountry"],
+    aggfunc="sum",
+    fill_value=0,
+).reset_index()
 
 
-games['gameDate'] = pd.to_datetime(games['gameDate'])
-games = games.sort_values('gameDate')
-schedule = pd.concat([games[['dailyDataDate', 'gamePk','homeId', 'gameDate']].rename({'homeId': 'teamId'}, axis=1),
-                      games[['dailyDataDate', 'gamePk','awayId', 'gameDate']].rename({'awayId': 'teamId'}, axis=1)])
-schedule = schedule.sort_values('gameDate')
-schedule = schedule[schedule['dailyDataDate']<20210401]
-schedule = pd.concat([schedule, schedule_21[['dailyDataDate','teamId','gameDate']]])
-schedule['gameDate'] = pd.to_datetime(schedule['gameDate'])
+games_t["gameDate"] = pd.to_datetime(games_t["gameDate"])
+games = games_t.sort_values("gameDate")
+schedule = pd.concat(
+    [
+        games[["dailyDataDate", "gamePk", "homeId", "gameDate"]].rename(
+            {"homeId": "teamId"}, axis=1
+        ),
+        games[["dailyDataDate", "gamePk", "awayId", "gameDate"]].rename(
+            {"awayId": "teamId"}, axis=1
+        ),
+    ]
+)
+schedule = schedule.sort_values("gameDate")
+schedule = schedule[schedule["dailyDataDate"] < 20210401]
+schedule = pd.concat([schedule, schedule_21[["dailyDataDate", "teamId", "gameDate"]]])
+schedule["gameDate"] = pd.to_datetime(schedule["gameDate"])
 
 
+
+
+
+
+############################################
+## iterations
+
+
+
+def get_unnested_data(data):
+    full_dfs = [
+        eng_t,
+        games_t,
+        rosters_t,
+        p_box_scores_t,
+        t_box_scores_t,
+        transactions_t,
+        standings_t,
+        awards_t,
+        events_t,
+        p_twitter_t,
+        t_twitter_t,
+    ]
+    df_dict = {}
+    for full_df, nest_name in zip(full_dfs, data.columns[1:]):
+        try:
+            df_unnested = pd.read_json(data[nest_name].iloc[0])
+        except:
+            df_unnested = full_df.iloc[0:0]
+            # print(f"empty {nest_name}")
+
+        df_unnested["dailyDataDate"] = data["date"].iloc[0]
+        df_dict[nest_name] = df_unnested
+    return df_dict
 
 
 player_history = defaultdict(list)
@@ -446,18 +597,31 @@ for i, data in tqdm(train.iterrows()):
     data = data.to_frame().T
     daily_data_date = data['date'].iloc[0]
     season = int(str(daily_data_date)[:4])
-    daily_data_nested_df_names = data.drop('date', axis = 1).columns.values.tolist()
 
-    eng, games, rosters, p_box_scores, t_box_scores, transactions, standings, awards, events, p_twitter, t_twitter = get_unnested_data(data, train_colnames)
+    df_dict = get_unnested_data(data)
+    (eng, games, rosters, p_box_scores, t_box_scores, transactions, standings,
+        awards, events, p_twitter, t_twitter) = df_dict.values()
+
     eng_shape = eng.shape
+
+
+
+# ##### test code for strange values in dummy cols - use for validation set  ###
+#     transactions.loc[transactions.typeCode=="SFA", 'typeCode'] = "KJHLIH"        #############
+#     awards.loc[awards.awardId=="ALPOW", 'awardId'] = "KJHLIH"        #############
+#     rosters.loc[rosters.statusCode=="A", 'statusCode'] = "kghjrk"
+# ######
+
 
 
     t_tmp = eng.copy()
 
     # If rosters data is missing then use rosters from the most recent day available
+    prior_day_rosters = rosters_t.iloc[0:0]
     if rosters.empty:
         rosters = prior_day_rosters
-    prior_day_rosters = rosters.copy()
+    else:  # rosters = rosters
+        prior_day_rosters = rosters.copy()
 
 
     if not games.empty and not games.loc[games['gameType'].isin(["R", "F","D","L","W","C","P"])].empty:
@@ -591,11 +755,14 @@ for i, data in tqdm(train.iterrows()):
     pitching_history_df = pd.DataFrame.from_dict(pitching_history_features, orient='index').reset_index().rename({'index': 'playerId'}, axis=1)
 
 
-    if not p_twitter.empty:
-        p_twitter_recent = p_twitter
+    p_twitter_prior = p_twitter_t.iloc[0:0]
+    if p_twitter.empty:
+        p_twitter = p_twitter_prior
+    else:
+        p_twitter_prior = p_twitter.copy()
 
     # How to handle doubleheaders? Taking stats from first game for now
-    if not t_box_scores.empty:
+    if not t_box_scores.empty:   # assume there are p-box scores if there are t-box scores
         # THIS IS STILL NOT VERY SMART. IF A PLAYER ONLY PLAYS IN 1 OF THE GAMES, THE GAME THEY PLAYED IN MIGHT NOT GET PICKED
         # There is a double header on 2018-04-17 but the `doubleHeader` flag is only True for one of them and `gameNumber` is 1 for both (should be 1 and 2).
         # There might be more double headers that aren't correctly indicated in the `games` data
@@ -604,8 +771,8 @@ for i, data in tqdm(train.iterrows()):
         dh_last_game = dh_games[dh_games[['dailyDataDate','playerId']].duplicated(keep='first')] #games to remove
         t_tmp = t_tmp[~(t_tmp['playerId'].isin(dh_last_game['playerId']) & t_tmp['gamePk'].isin(dh_last_game['gamePk']))]
 
-        t_tmp['game_score_james'] = game_score_james(p_box_scores)
-        t_tmp['game_score_tango'] = game_score_tango(p_box_scores)
+        t_tmp['game_score_james'] = game_score_james(p_box_scores) if not p_box_scores.empty else 0
+        t_tmp['game_score_tango'] = game_score_tango(p_box_scores) if not p_box_scores.empty else 0
         t_tmp['position_player_pitching'] = ((t_tmp['positionCode']>1) & (t_tmp['pitchesThrown']>0)).astype(int)
         t_tmp['pitcher_hit_home_run'] = ((t_tmp['positionCode']==1) & (t_tmp['homeRuns'] > 0)).astype(int)
         # t_tmp['pos_player_pitched_prior_day'] = 0
@@ -660,8 +827,21 @@ for i, data in tqdm(train.iterrows()):
         t_tmp = t_tmp.merge(starters_first_mob_inning[['pitcherId', 'pitcher_first_mob_inning']], how='left', left_on='playerId', right_on='pitcherId')
 
         # Pitch features
-        nastyFactor_features = events[events['type']=='pitch'].groupby("pitcherId")['nastyFactor'].agg(['mean','median','min','max']).reset_index().rename(columns={f: f'nastyFactor_{f}' for f in ['mean','median','max','min']}).rename(columns={'pitcherId': 'playerId'})
+        agg_types = ['mean','median','min','max']
+        if not events[events['type']=='pitch'].empty:
+            nastyFactor_features = (
+                events[events['type']=='pitch']
+                .groupby("pitcherId")['nastyFactor']
+                .agg(agg_types)
+                .reset_index()
+                .rename(columns={f: f'nastyFactor_{f}' for f in agg_types})
+                .rename(columns={'pitcherId': 'playerId'})
+            )
+        else:
+            nastyFactor_features = pd.DataFrame(columns = ['playerId'] + [f'nastyFactor_{f}' for f in agg_types])
+            print("no nastiness")
         t_tmp = t_tmp.merge(nastyFactor_features, how='left', on='playerId')
+
 
         # Possible robbed HRs
         # NEED TO IMPROVE NAME EXTRACTION
@@ -674,43 +854,47 @@ for i, data in tqdm(train.iterrows()):
 
         # Calculate player Win Probability Added
         #need to get assign 100% WPA to winning team to assign WPA scores to correct player/team
+        try:
+            player_wpa = pd.Series(dtype=float)
+            for gamePk, game in events.groupby('gamePk'):
+                game = game.reset_index(drop=True)
+                game['run_diff'] = game['homeScore'] - game['awayScore']
+                game['halfInning_index'] = game['halfInning'].map({'top':1, 'bottom': 2})
+                game['base_state'] = game['menOnBase'].map({None: np.nan, 'Empty': 1, 'Men_On': 2, 'RISP': 3, 'Loaded': 8})
+                game['base_state'] = game['base_state'].ffill().fillna(1).astype(int)
+                game['outs_beg'] = np.maximum(game['outs'] - 1, 0)
+                game['win_exp'] = game.apply(winnexp_feature, axis=1)
+                game['win_exp_lag'] = game['win_exp'].shift(-1)
+                game.loc[game.shape[0]-1, 'win_exp_lag'] = 1 if game.loc[game.shape[0]-1, 'homeScore']>game.loc[game.shape[0]-1, 'awayScore'] else 0
+                game['win_exp_delta'] = game['win_exp_lag'] - game['win_exp']
+                # Increases in the top of the inning are assigned to the pitcher
+                # Increases in the bottom of the inning are assigned to the hitter
+                pitcher_wpa_top = game.loc[(game['halfInning']=='top') & (game['win_exp_delta']>0),['pitcherId','win_exp_delta']].groupby('pitcherId')['win_exp_delta'].sum()
+                hitter_wpa_top = game.loc[(game['halfInning']=='top') & (game['win_exp_delta']>0),['hitterId','win_exp_delta']].groupby('hitterId')['win_exp_delta'].sum()
+                hitter_wpa_top = -hitter_wpa_top
 
-        player_wpa = pd.Series(dtype=float)
-        for gamePk, game in events.groupby('gamePk'):
-            game = game.reset_index(drop=True)
-            game['run_diff'] = game['homeScore'] - game['awayScore']
-            game['halfInning_index'] = game['halfInning'].map({'top':1, 'bottom': 2})
-            game['base_state'] = game['menOnBase'].map({None: np.nan, 'Empty': 1, 'Men_On': 2, 'RISP': 3, 'Loaded': 8})
-            game['base_state'] = game['base_state'].ffill().fillna(1).astype(int)
-            game['outs_beg'] = np.maximum(game['outs'] - 1, 0)
-            game['win_exp'] = game.apply(winnexp_feature, axis=1)
-            game['win_exp_lag'] = game['win_exp'].shift(-1)
-            game.loc[game.shape[0]-1, 'win_exp_lag'] = 1 if game.loc[game.shape[0]-1, 'homeScore']>game.loc[game.shape[0]-1, 'awayScore'] else 0
-            game['win_exp_delta'] = game['win_exp_lag'] - game['win_exp']
-            # Increases in the top of the inning are assigned to the pitcher
-            # Increases in the bottom of the inning are assigned to the hitter
-            pitcher_wpa_top = game.loc[(game['halfInning']=='top') & (game['win_exp_delta']>0),['pitcherId','win_exp_delta']].groupby('pitcherId')['win_exp_delta'].sum()
-            hitter_wpa_top = game.loc[(game['halfInning']=='top') & (game['win_exp_delta']>0),['hitterId','win_exp_delta']].groupby('hitterId')['win_exp_delta'].sum()
-            hitter_wpa_top = -hitter_wpa_top
+                pitcher_wpa_bot = game.loc[(game['halfInning']=='bottom') & (game['win_exp_delta']>0),['pitcherId','win_exp_delta']].groupby('pitcherId')['win_exp_delta'].sum()
+                hitter_wpa_bot = game.loc[(game['halfInning']=='bottom') & (game['win_exp_delta']>0),['hitterId','win_exp_delta']].groupby('hitterId')['win_exp_delta'].sum()
+                pitcher_wpa_bot = -pitcher_wpa_bot
 
-            pitcher_wpa_bot = game.loc[(game['halfInning']=='bottom') & (game['win_exp_delta']>0),['pitcherId','win_exp_delta']].groupby('pitcherId')['win_exp_delta'].sum()
-            hitter_wpa_bot = game.loc[(game['halfInning']=='bottom') & (game['win_exp_delta']>0),['hitterId','win_exp_delta']].groupby('hitterId')['win_exp_delta'].sum()
-            pitcher_wpa_bot = -pitcher_wpa_bot
+                player_wpa = player_wpa.add(pitcher_wpa_top, fill_value=0)
+                player_wpa = player_wpa.add(hitter_wpa_top, fill_value=0)
+                player_wpa = player_wpa.add(pitcher_wpa_bot, fill_value=0)
+                player_wpa = player_wpa.add(hitter_wpa_bot, fill_value=0)
 
-            player_wpa = player_wpa.add(pitcher_wpa_top, fill_value=0)
-            player_wpa = player_wpa.add(hitter_wpa_top, fill_value=0)
-            player_wpa = player_wpa.add(pitcher_wpa_bot, fill_value=0)
-            player_wpa = player_wpa.add(hitter_wpa_bot, fill_value=0)
+            player_wpa = player_wpa.reset_index()
+            player_wpa = player_wpa.rename({"index": "playerId", 0: "wpa"}, axis=1)
+            t_tmp = t_tmp.merge(player_wpa, how='left', on='playerId')
+            t_tmp['wpa_daily_max'] = t_tmp['wpa'].max()
 
-        player_wpa = player_wpa.reset_index()
-        player_wpa = player_wpa.rename({"index": "playerId", 0: "wpa"}, axis=1)
+        except:
+            print("Wpa tops and bots failed.")
+                    # do the missing columns get picked up on concat?
 
-        t_tmp = t_tmp.merge(player_wpa, how='left', on='playerId')
-        t_tmp['wpa_daily_max'] = t_tmp['wpa'].max()
 
         # get ejections
         ejections = events.loc[events['event']=="Ejection", ['dailyDataDate','description']].reset_index(drop=True)
-        if not ejections.empty:
+        if not ejections.empty and 'teamId' in t_tmp.columns:
             ejections['description'] = [x.split(" ejected by")[0] for x in ejections['description']]
             # Get team; needed for coach_ejected feature
             ejections['teamName'] = [team_regex.findall(x)[0] if team_regex.findall(x) else None for x in ejections['description']] # else None to account for names not spelled in a way that matches the regex
@@ -739,14 +923,20 @@ for i, data in tqdm(train.iterrows()):
     #     t_tmp = t_tmp.merge(rosters[['playerId','teamId']], how='left', on='playerId')
     # t_tmp = t_tmp.merge(all_dates[['dailyDataDate_lead','teamId','nextDayGame']], how='left', left_on=['dailyDataDate', 'teamId'], right_on=['dailyDataDate_lead','teamId'])
     # t_tmp['nextDayGame'] = t_tmp['nextDayGame'].fillna(0)
-    roster_dummies = pd.concat([rosters[['dailyDataDate','playerId']], pd.get_dummies(rosters['statusCode'])], axis=1)
-    roster_dummies = roster_dummies.groupby(["dailyDataDate", "playerId"]).sum().reset_index()
-    for col in ['A', 'BRV', 'D10', 'D60', 'D7', 'DEC','FME', 'PL', 'RES', 'RM', 'SU']:
-        if col not in roster_dummies.columns:
-            roster_dummies[col] = 0
 
-    t_tmp = t_tmp.merge(roster_dummies, how='left', on=['dailyDataDate','playerId'])
+    # na for rosters in test df has already been handled
+    if not rosters.empty:
+        roster_dummies = pd.concat([rosters[['dailyDataDate','playerId']],
+            pd.get_dummies(rosters['statusCode'])], axis=1)
+        roster_dummies = roster_dummies.groupby(["dailyDataDate", "playerId"]).sum().reset_index()
+        for col in ['A', 'BRV', 'D10', 'D60', 'D7', 'DEC','FME', 'PL', 'RES', 'RM', 'SU']:
+            if col not in roster_dummies.columns:
+                roster_dummies[col] = 0
+
+        t_tmp = t_tmp.merge(roster_dummies, how='left', on=['dailyDataDate','playerId'])
     assert t_tmp.shape[0]==eng_shape[0], "rosters: t_tmp length does not match engagement frame length, check for duplicated data"
+
+
 
     if not transactions.empty:
         transactions_dummies = pd.concat([transactions[['dailyDataDate','playerId']], pd.get_dummies(transactions['typeCode'])], axis=1)
@@ -759,6 +949,8 @@ for i, data in tqdm(train.iterrows()):
         t_tmp[['ASG', 'CLW', 'CU', 'DES', 'DFA', 'NUM','OPT', 'OUT', 'REL', 'RET', 'RTN', 'SC', 'SE', 'SFA', 'SGN', 'TR']] = 0
 
     assert t_tmp.shape[0]==eng_shape[0], "transactions: t_tmp length does not match engagement frame length, check for duplicated data"
+
+
 
     keep_awards = ['NLPOW', 'ALPOW', 'NLROM', 'ALROM','NLPOM','ALPOM','NLRRELMON','ALRRELMON','ALPITOM','NLPITOM','MLBPLAYOW']
     if not awards.empty:
@@ -812,6 +1004,8 @@ for i, data in tqdm(train.iterrows()):
 
 
     t_tmp = t_tmp.merge(player_country_dummies, how='left', on='playerId')
+            # val and test will need reindexed to train in case of new countries
+
     assert t_tmp.shape[0]==eng_shape[0], "player_country_dummies: t_tmp length does not match engagement frame length, check for duplicated data"
     # Add games features
     # if not games.empty and not p_box_scores.empty:
@@ -823,10 +1017,12 @@ for i, data in tqdm(train.iterrows()):
 
 
     # Add Twitter features
-    t_tmp = t_tmp.merge(p_twitter_recent[['playerId','numberOfFollowers']], how='left', on=['playerId'])
+    t_tmp = t_tmp.merge(p_twitter[['playerId','numberOfFollowers']], how='left', on=['playerId'])
 
-    # Add median player engagement
-    # t_tmp = t_tmp.merge(player_medians, how='left', on='playerId')
+
+
+    # Static aggs from all of train
+
     t_tmp = t_tmp.merge(player_aggs, how='left', on='playerId')
     # t_tmp = t_tmp.merge(player_variances, how='left', on='playerId')
     # if 'gamePk' in t_tmp.columns:
@@ -852,13 +1048,46 @@ for i, data in tqdm(train.iterrows()):
     t.append(t_tmp)
 
 tf = pd.concat(t)
-tf.to_csv("./tf_saved.csv", index=False)
+# tf.to_csv("./tf_saved.csv", index=False)
 # Frequency Encodings
 
+# tf = pd.read_csv("./tf_saved.csv")
 
-#tf[['started_next_game_pred', 'relieved_next_game_pred']] = tf[['started_next_game_pred', 'relieved_next_game_pred']].fillna(0)
-tr = tf[(tf['dailyDataDate']<20210401)]
-val = tf[(tf['dailyDataDate']>=20210401)]
+
+tf.columns = tf.columns.str.replace(" ", "_", regex=False)
+
+excl_cols = [   # remove spaces from these
+    'dailyDataDate','target1','target2','target3','target4',
+    'hitterId','pitcherId','playerId','gamePk',
+    'engagementMetricsDate',
+    "gameDate", "gameTimeUTC", "teamName", "playerName", "jerseyNum",
+    "positionName", "positionType", "target1_p_mean", "target2_p_mean",
+    "target3_p_mean","target4_p_mean",
+    "gameTimeUTC_team_box_score", "gameDate_team_box_score",
+    "dailyDataDate_team_box_score","dailyDataDate_team_standings",
+    "dailyDataDate_lead", 'playerForTestSetAndFuturePreds','hr_rank',
+    'team_games_played', 'dayNight','homeWinPct','awayWinPct',
+    'homeScore','awayScore','homeWinner'
+]
+use_cols = [col for col in tf.columns if col not in excl_cols]
+
+
+# final conformity
+
+## there shouldn't be any non_numerics at this point
+rogue_labels = tf[use_cols].select_dtypes('object').columns.tolist()
+if rogue_labels:
+    tf[rogue_labels] = tf[rogue_labels].apply(pd.to_numeric, errors='coerce')
+    print(f'{rogue_labels} were still object dtype')
+
+
+
+# test = tf.reindex(columns=tf_cols)
+
+
+
+tr = tf[(tf['dailyDataDate']<=20210531)]
+val = tf[(tf['dailyDataDate']>20210531)]
 
 
 params = {    'num_leaves': 73,
@@ -889,12 +1118,6 @@ params = {    'num_leaves': 73,
               'reg_sqrt': False, # Change to false for regression_l2
               "device_type": 'gpu'}
 
-excl_cols = ['hitterId','pitcherId','playerId','gamePk','dailyDataDate','engagementMetricsDate','target1','target2','target3','target4',
-             "gameDate", "gameTimeUTC", "teamName", "playerName", "jerseyNum",
-             "positionName", "positionType", "target1_p_mean", "target2_p_mean","target3_p_mean","target4_p_mean",
-             "gameTimeUTC_team_box_score", "gameDate_team_box_score", "dailyDataDate_team_box_score","dailyDataDate_team_standings",
-             "dailyDataDate_lead", 'playerForTestSetAndFuturePreds','hr_rank','team_games_played', 'dayNight','homeWinPct','awayWinPct','homeScore','awayScore','homeWinner']
-use_cols = [col for col in tr.columns if col not in excl_cols]
 
 # excl_cols = [f"{feat}_last{n}" for feat in hitter_history_feats + pitcher_history_feats + fielder_history_feats for n in [6,8,9,11,12,13,14,15,16,17,18,19]]
 # use_cols = [col for col in use_cols if col not in excl_cols]
