@@ -11,7 +11,7 @@ dev.columns
 
 original.columns.isin(dev.columns).sum()
 
-dev = dev.reindex(columns=original.columns)
+# dev = dev.reindex(columns=original.columns)
 
 dev.equals(original)
 
@@ -24,4 +24,14 @@ for col in original.columns:
         print(col)
 
 
-dev.SFA.compare(original.SFA)
+dev.NLROM.compare(original.NLROM)
+dev.teamId.compare(original.teamId)
+
+original.at[12366, "SFA"]
+original.loc[12366]
+dev.at[12366, "SFA"]
+dev.loc[12366]
+
+
+original[original.dailyDataDate == 20180101]
+dev[dev.dailyDataDate == 20180101]

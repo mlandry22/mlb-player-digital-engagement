@@ -1004,8 +1004,8 @@ hitter_history_dict = {}
 fielder_history_dict = {}
 pitcher_history_dict = {}
 
-
-for i, data in tqdm(train[-120:-100].iterrows()):
+eng_shape = (2061, 10)
+for i, data in tqdm(train[:100].iterrows()):
     data = data.to_frame().T
 
     df_dict = get_unnested_data(data)
@@ -1685,22 +1685,12 @@ for i, data in tqdm(train[-120:-100].iterrows()):
     ]
     roster_dummies = roster_dummies.reindex(
         columns=time_group_cols + roster_dummycols, fill_value=0
-    )
+    ).fillna(0)
 
     t_tmp = t_tmp.merge(roster_dummies, how="left", on=time_group_cols)
     assert (
         t_tmp.shape[0] == eng_shape[0]
     ), "rosters: t_tmp length does not match engagement frame length, check for duplicated data"
-
-    transactions_dummies = (
-        pd.get_dummies(
-            transactions[["dailyDataDate", "playerId", "typeCode"]],
-            prefix="",
-            prefix_sep="",
-        )
-        .groupby(time_group_cols, as_index=False)
-        .sum()
-    )
 
     transax_dummycols = [
         "ASG",
@@ -1720,11 +1710,28 @@ for i, data in tqdm(train[-120:-100].iterrows()):
         "SGN",
         "TR",
     ]
-    transactions_dummies = transactions_dummies.reindex(
-        columns=time_group_cols + transax_dummycols, fill_value=0
-    )
 
-    t_tmp = t_tmp.merge(transactions_dummies, how="left", on=time_group_cols)
+    if not transactions.empty:
+
+        transactions_dummies = pd.concat(
+            [transactions[time_group_cols], pd.get_dummies(transactions.typeCode)],
+            axis=1,
+        )
+        transactions_dummies = transactions_dummies.groupby(
+            time_group_cols, as_index=False
+        ).sum()
+        for col in transax_dummycols:  # reindex
+            if col not in transactions_dummies.columns:
+                transactions_dummies[col] = 0
+
+        t_tmp = t_tmp.merge(transactions_dummies, how="left", on=time_group_cols)
+
+    else:
+        t_tmp[transax_dummycols] = 0
+
+    transactions_dummies.playerId.isin(t_tmp.playerId).sum()
+    transactions_dummies.dailyDataDate.isin(t_tmp.dailyDataDate).sum()
+    t_tmp.merge(transactions_dummies, how="inner", on=time_group_cols)
 
     assert (
         t_tmp.shape[0] == eng_shape[0]
@@ -1756,7 +1763,7 @@ for i, data in tqdm(train[-120:-100].iterrows()):
 
     awards_dummies = awards_dummies.reindex(
         columns=time_group_cols + keep_awards, fill_value=0
-    )
+    ).fillna(0)
 
     t_tmp = t_tmp.merge(awards_dummies, how="left", on=time_group_cols)
 
