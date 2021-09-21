@@ -12,8 +12,8 @@ These notes pertain mostly to code used for training the model, which resides in
 
 
 ## System
-AMD Ryzen Threadripper 3970X 32-Core Processor
-256GB RAM DDR4
-Quadro RTX 6000 24GB (3)
-Ubuntu 18.04
-Python 3.9.7
+- AMD Ryzen Threadripper 3970X 32-Core Processor
+- 256GB RAM DDR4
+- Quadro RTX 6000 24GB (3)
+- Ubuntu 18.04
+- Python 3.9.7
