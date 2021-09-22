@@ -6,9 +6,10 @@ These notes pertain mostly to code used for training the model, which resides in
 ## Instructions
 1. Create pickle files using the notebook at https://www.kaggle.com/naotaka1128/creating-unnested-dataset/notebook. The code here uses them instead of the raw csv files.
 2. Install required libraries from requirements.txt
-3. Run the python file.
-4. Use the serialized models output from this code as inputs to the submitted notebook.
-5. Get 2nd place!
+3. Run mlb_dataprep_24f.py to create the dataset used for training. 
+4. Run mlb_train_24f.py to train a model on the dataset.
+5. Use the serialized models output from the above step as inputs to the submitted notebook.
+6. Get 2nd place!
 
 
 ## System
