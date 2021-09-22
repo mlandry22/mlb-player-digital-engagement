@@ -1,5 +1,6 @@
 # Python 3.9 was used for training
 
+datatable==1.0.0
 fuzzywuzzy==0.18.0
 lightgbm==3.2.1
 numba==0.53.1
