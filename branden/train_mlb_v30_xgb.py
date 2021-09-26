@@ -1280,7 +1280,7 @@ with open("./saved/xgb_v30_use_cols.txt", "w") as f:
         f.write("%s\n" % item)
 
 model_dict = {}
-for target in ['target1','target2','target3','target4'][3:]:
+for target in ['target1','target2','target3','target4']:
     params['learning_rate'] = 0.001 #if target in ['target1', 'target4'] else 0.001
     xgb_dtrain = xgb.DMatrix(tr[use_cols].fillna(-99999).replace(np.inf, -99999), np.sqrt(np.sqrt(tr[target])))
     xgb_dval = xgb.DMatrix(val[use_cols].fillna(-99999).replace(np.inf, -99999), np.sqrt(np.sqrt(val[target])))
@@ -1315,7 +1315,7 @@ for target in ['target1','target2','target3','target4'][3:]:
 #     model_dict[target]['imp'] = pd.DataFrame.from_dict(xgb_model.get_score(importance_type='gain'), orient='index')
 #     model_dict[target]['best_score'] = xgb_model.best_score
     
-for target in ['target1','target2','target3','target4'][3:4]:
+for target in ['target1','target2','target3','target4']:
     params['learning_rate'] = 0.001 #if target=='target1' else 0.001
     xgb_dtrain = xgb.DMatrix(tf[use_cols].fillna(-99999).replace(np.inf, -99999), np.sqrt(np.sqrt(tf[target])))
 
